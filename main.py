@@ -169,29 +169,45 @@ def main():
     mostrar_banner()
     args = parse_args()
 
+    # 🔹 Permitir archivo o término único
     if not args.dominios:
-        lista_path = pedir_ruta("1) Ruta del archivo de dominios (.txt): ", True, False)
+        entrada = input("1) Ruta del archivo de dominios (.txt) o término único a buscar: ").strip()
+        if entrada and Path(entrada).exists():
+            lista_path = Path(entrada)
+            dominios = leer_dominios(lista_path)
+        else:
+            dominios = [entrada.lower()]
     else:
         lista_path = Path(args.dominios).expanduser()
-    if not lista_path.exists():
-        print("[X] Archivo de dominios no encontrado.")
+        if lista_path.exists():
+            dominios = leer_dominios(lista_path)
+        else:
+            dominios = [args.dominios.lower()]
+
+    if not dominios or all(not d.strip() for d in dominios):
+        print("[X] No se ha especificado dominio o término válido.")
         sys.exit(1)
 
+    # 🔹 Carpeta de búsqueda
     if not args.db:
         db_root = pedir_ruta("2) Ruta de la carpeta con las 'bases de datos': ", True, True)
     else:
         db_root = Path(args.db).expanduser()
 
+    # 🔹 Extensiones
     if not args.ext:
         exts_input = input(f"3) Extensiones [por defecto: {','.join(DEF_EXTS)}]: ").strip()
         extensiones = [e.strip().lstrip(".") for e in exts_input.split(",")] if exts_input else DEF_EXTS
     else:
         extensiones = [e.strip().lstrip(".") for e in args.ext.split(",")]
 
+    # 🔹 Carpeta salida (Export fijo)
     if not args.out:
-        out_dir = pedir_ruta("4) Carpeta de salida (Enter=actual): ", False, True, Path.cwd())
+        base_dir = pedir_ruta("4) Carpeta base de salida (Enter=actual): ", False, True, Path.cwd())
     else:
-        out_dir = Path(args.out).expanduser()
+        base_dir = Path(args.out).expanduser()
+    out_dir = base_dir / "Export"
+    out_dir.mkdir(parents=True, exist_ok=True)
 
     if not args.dominios or not args.db or not args.out or not args.ext:
         crear_vacios = input("5) ¿Crear archivos sin coincidencias? [s/N]: ").strip().lower().startswith("s")
@@ -200,10 +216,7 @@ def main():
 
     jobs = args.jobs if args.jobs > 0 else os.cpu_count() or 1
 
-    print("\n→ Leyendo dominios...")
-    dominios = leer_dominios(lista_path)
-    print(f"   {len(dominios)} dominios cargados.")
-
+    print(f"\n→ {len(dominios)} término(s) cargado(s).")
     print("→ Listando archivos...")
     archivos = listar_archivos(db_root, extensiones)
     print(f"   {len(archivos)} archivos para analizar.\n")
@@ -220,9 +233,8 @@ def main():
 
     total_hits = sum(len(v) for v in agg.values())
     con_hits = sum(1 for v in agg.values() if v)
-    print(f"\n✅ Completado. {con_hits}/{len(dominios)} dominios con coincidencias. Total líneas: {total_hits}.")
+    print(f"\n✅ Completado. {con_hits}/{len(dominios)} términos con coincidencias. Total líneas: {total_hits}.")
     print(f"📂 Archivos guardados en: {out_dir}")
-
 if __name__ == "__main__":
     try:
         mp.freeze_support()
