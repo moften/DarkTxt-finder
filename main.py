@@ -169,7 +169,6 @@ def main():
     mostrar_banner()
     args = parse_args()
 
-    # 🔹 Permitir archivo o término único
     if not args.dominios:
         entrada = input("1) Ruta del archivo de dominios (.txt) o término único a buscar: ").strip()
         if entrada and Path(entrada).exists():
@@ -188,20 +187,17 @@ def main():
         print("[X] No se ha especificado dominio o término válido.")
         sys.exit(1)
 
-    # 🔹 Carpeta de búsqueda
     if not args.db:
         db_root = pedir_ruta("2) Ruta de la carpeta con las 'bases de datos': ", True, True)
     else:
         db_root = Path(args.db).expanduser()
 
-    # 🔹 Extensiones
     if not args.ext:
         exts_input = input(f"3) Extensiones [por defecto: {','.join(DEF_EXTS)}]: ").strip()
         extensiones = [e.strip().lstrip(".") for e in exts_input.split(",")] if exts_input else DEF_EXTS
     else:
         extensiones = [e.strip().lstrip(".") for e in args.ext.split(",")]
 
-    # 🔹 Carpeta salida (Export fijo)
     if not args.out:
         base_dir = pedir_ruta("4) Carpeta base de salida (Enter=actual): ", False, True, Path.cwd())
     else:
