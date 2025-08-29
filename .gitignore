@@ -43,7 +43,6 @@ Icon?
 # Resultados del script
 # =====================
 Export/
-*.txt
 
 # =====================
 # Archivos de sistema
@@ -57,3 +56,4 @@ desktop.ini
 # =====================
 tests/output/
 tests/tmp/
+dominios.txt

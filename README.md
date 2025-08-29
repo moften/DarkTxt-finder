@@ -144,3 +144,4 @@ Este proyecto se distribuye bajo la licencia **MIT**.
 Puedes proponer mejoras, optimizaciones de rendimiento o nuevos formatos de salida.
 
 ---
+ 

@@ -21,21 +21,23 @@ DEF_EXTS = ["txt","csv","log","json","sql","tsv","xml","yml","yaml","ndjson"]
 
 def mostrar_banner():
     banner = r"""
+============================================================================
 
-░  ░░░░░░░░        ░░░      ░░░  ░░░░  ░
-▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒  ▒▒  ▒▒▒  ▒▒
-▓  ▓▓▓▓▓▓▓▓      ▓▓▓▓  ▓▓▓▓  ▓▓     ▓▓▓▓
-█  ████████  ████████        ██  ███  ██
-█        ██        ██  ████  ██  ████  █
+                ░  ░░░░░░░░        ░░░      ░░░  ░░░░  ░
+                ▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒  ▒▒  ▒▒▒  ▒▒
+                ▓  ▓▓▓▓▓▓▓▓      ▓▓▓▓  ▓▓▓▓  ▓▓     ▓▓▓▓
+                █  ████████  ████████        ██  ███  ██
+                █        ██        ██  ████  ██  ████  █
                                         
+         by m10sec (2025) - Flipador de Tools - m10sec@proton.me
+        Buscador de dominios ultra-rápido en grandes bases de datos
+                usando Aho-Corasick + Multiprocessing
 
-    m10sec 2025
-     Buscador de dominios ultra-rápido en grandes bases de datos
-     usando Aho-Corasick + Multiprocessing
+============================================================================
     """
     print(banner)
     print("=== Instrucciones de uso rápido ===")
-    print("1) Prepara un archivo TXT con un dominio por línea (sin http://).")
+    print("1) Prepara un archivo TXT con un dominio (o lo que sea) por línea (sin http://).")
     print("2) Coloca todas las 'bases de datos' (txt, csv, sql, logs, etc.) en una carpeta.")
     print("3) Ejecuta el script y responde las preguntas o usa parámetros por CLI.\n")
     print("Ejemplo CLI:")
