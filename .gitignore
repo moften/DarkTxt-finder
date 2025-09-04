@@ -57,3 +57,4 @@ desktop.ini
 tests/output/
 tests/tmp/
 dominios.txt
+*.txt
