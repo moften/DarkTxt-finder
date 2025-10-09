@@ -40,7 +40,7 @@ IGNORE_DIRNAMES = {
 }
 
 IGNORE_FILENAMES = {
-    ".DS_Store", "Icon\r",  # "Icon\r" típico de volúmenes macOS
+    ".DS_Store", "Icon\r",  # volúmenes macOS
     "Thumbs.db", "desktop.ini",
 }
 
@@ -52,7 +52,7 @@ IGNORE_FILE_PREFIXES = (
 )
 
 IGNORE_FILE_SUFFIXES = (
-    "~",            # backups temporales
+    "~",            
 )
 
 IGNORE_FILE_EXTS = (
