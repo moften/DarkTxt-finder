@@ -58,3 +58,4 @@ tests/output/
 tests/tmp/
 dominios.txt
 *.txt
+pm_map.csv

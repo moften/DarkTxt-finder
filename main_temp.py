@@ -99,6 +99,7 @@ def mostrar_banner():
     print(f" - jobs=0 usa {Fore.GREEN}todos los núcleos disponibles{Style.RESET_ALL}\n")
     print(f"{Fore.CYAN}{'='*70}{Style.RESET_ALL}\n")
 
+# --- globals para workers ---
 _G_DOMINIOS: List[str] = []
 _G_AUTOMATON = None
 
@@ -198,6 +199,7 @@ def listar_archivos(raiz: Path, exts: List[str], ignore_trash: bool = True) -> L
     print(f"   (Ignorados {ignorados} temporales/sistema)")
     return archivos
 
+# ---- Normalización robusta de dominios/hosts ----
 def normalizar_dominio(valor: str) -> str:
     """
     Devuelve el hostname en minúsculas (sin esquema, path, ni 'www.' inicial).
@@ -218,7 +220,7 @@ def normalizar_dominio(valor: str) -> str:
         s = s[4:]
     return s
 
-# ---- tremendos responsables PMs ----
+# ---- Carga robusta del CSV de PMs ----
 def cargar_pm_map(pm_csv_path: Path) -> Dict[str, str]:
     """
     Carga un CSV con columnas (con o sin encabezado):
@@ -308,7 +310,7 @@ def cargar_pm_map(pm_csv_path: Path) -> Dict[str, str]:
             if not dom_key or not pm_raw:
                 continue
 
-            # clave normalizada (sin www.) ya quedo
+            # clave normalizada (sin www.)
             pm_map[dom_key] = pm_raw
             # alias con www.
             www_key = "www." + dom_key
@@ -459,11 +461,12 @@ def parse_args() -> argparse.Namespace:
                     help="No inferir PM desde hostnames reales en líneas url:user:pass")
     return ap.parse_args()
 
-# --- main  aqui va todo---
+# --- main ---
 def main():
     mostrar_banner()
     args = parse_args()
 
+    # dominios / término único
     if not args.dominios:
         entrada = input("1) Ruta del archivo de dominios (.txt) o término único a buscar: ").strip()
         if entrada and Path(entrada).expanduser().exists():
@@ -503,19 +506,15 @@ def main():
     out_dir = base_dir / "Export"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-def _ask_yes(prompt: str, default: bool = False) -> bool:
-    resp = input(prompt).strip().lower()
-    if not resp:
-        return default
-    return resp in ("s", "si", "sí", "y", "yes", "true", "1")
+    # crear vacíos
+    if not args.dominios or not args.db or not args.out or not args.ext:
+        crear_vacios = input("5) ¿Crear archivos sin coincidencias? [s/N]: ").strip().lower().startswith("s")
+    else:
+        crear_vacios = args.crear_vacios
 
-# crear vacíos (default = No)
-if not args.dominios or not args.db or not args.out or not args.ext:
-    crear_vacios = _ask_yes("5) ¿Crear archivos sin coincidencias? [s/N]: ", default=False)
-else:
-    crear_vacios = bool(args.crear_vacios)
+    jobs = args.jobs if args.jobs > 0 else os.cpu_count() or 1
 
-    # PM map hay que terminar esto 
+    # PM map (opcional)
     pm_map: Dict[str, str] = {}
     if getattr(args, "pm_csv", None):
         pm_csv_path = Path(args.pm_csv).expanduser()
