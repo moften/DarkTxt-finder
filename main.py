@@ -509,13 +509,58 @@ def _ask_yes(prompt: str, default: bool = False) -> bool:
         return default
     return resp in ("s", "si", "sí", "y", "yes", "true", "1")
 
-# crear vacíos (default = No)
-if not args.dominios or not args.db or not args.out or not args.ext:
-    crear_vacios = _ask_yes("5) ¿Crear archivos sin coincidencias? [s/N]: ", default=False)
-else:
-    crear_vacios = bool(args.crear_vacios)
+# --- main ---
+def main():
+    mostrar_banner()
+    args = parse_args()
 
-    # PM map hay que terminar esto 
+    # 1) dominios / término
+    if not args.dominios:
+        entrada = input("1) Ruta del archivo de dominios (.txt) o término único a buscar: ").strip()
+        if entrada and Path(entrada).expanduser().exists():
+            lista_path = Path(entrada).expanduser()
+            dominios = leer_dominios(lista_path)
+        else:
+            dominios = [entrada.lower()]
+    else:
+        lista_path = Path(args.dominios).expanduser()
+        if lista_path.exists():
+            dominios = leer_dominios(lista_path)
+        else:
+            dominios = [args.dominios.lower()]
+
+    if not dominios or all(not d.strip() for d in dominios):
+        print("[X] No se ha especificado dominio o término válido.")
+        sys.exit(1)
+
+    # 2) carpeta DB
+    if not args.db:
+        db_root = pedir_ruta("2) Ruta de la carpeta con las 'bases de datos': ", True, True)
+    else:
+        db_root = Path(args.db).expanduser()
+
+    # 3) extensiones
+    if not args.ext:
+        exts_input = input(f"3) Extensiones [por defecto: {','.join(DEF_EXTS)}]: ").strip()
+        extensiones = [e.strip().lstrip(".") for e in exts_input.split(",")] if exts_input else DEF_EXTS
+    else:
+        extensiones = [e.strip().lstrip(".") for e in args.ext.split(",")]
+
+    # 4) salida
+    if not args.out:
+        base_dir = pedir_ruta("4) Carpeta base de salida (Enter=actual): ", False, True, Path.cwd())
+    else:
+        base_dir = Path(args.out).expanduser()
+    out_dir = base_dir / "Export"
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    # 5) crear vacíos
+    if not args.dominios or not args.db or not args.out or not args.ext:
+        crear_vacios = _ask_yes("5) ¿Crear archivos sin coincidencias? [s/N]: ", default=False)
+    else:
+        crear_vacios = bool(args.crear_vacios)
+
+    # PM map (opcional)
     pm_map: Dict[str, str] = {}
     if getattr(args, "pm_csv", None):
         pm_csv_path = Path(args.pm_csv).expanduser()
@@ -532,25 +577,30 @@ else:
     archivos = listar_archivos(db_root, extensiones, ignore_trash=not args.no_ignore)
     print(f"   {len(archivos)} archivos para analizar.\n")
 
-    print(f"→ Escaneando con {jobs} procesos...")
+    # Nº de procesos
+    jobs = args.jobs if args.jobs > 0 else (os.cpu_count() or 1)
+    print(f"→ Escaneando con {jobs} proceso(s)...")
+
+    # Agregador de resultados
     agg: Dict[str, List[str]] = {d: [] for d in dominios}
 
+    # Barra de progreso
     use_pbar = _HAS_TQDM and (not args.no_progress)
-    pbar = None
-    if use_pbar:
-        pbar = tqdm(total=len(archivos), unit="file", desc="Escaneando", smoothing=0.1)
+    pbar = tqdm(total=len(archivos), unit="file", desc="Escaneando", smoothing=0.1) if use_pbar else None
 
+    # Lanzar multiprocessing
     try:
         with mp.Pool(processes=jobs, initializer=_init_worker, initargs=(dominios,)) as pool:
             for result in pool.imap_unordered(_process_file, archivos, chunksize=10):
                 for d, line in result:
                     agg[d].append(line)
-                if use_pbar and pbar:
+                if pbar:
                     pbar.update(1)
     finally:
-        if use_pbar and pbar:
+        if pbar:
             pbar.close()
 
+    # Guardar
     print("→ Guardando resultados...")
     escribir_resultados(agg, out_dir, crear_vacios, pm_map, infer_pm_from_urls)
 
@@ -564,4 +614,5 @@ if __name__ == "__main__":
         mp.freeze_support()
         main()
     except KeyboardInterrupt:
+        print("\n[!] Proceso interrumpido.")
         print("\n[!] Proceso interrumpido.")
