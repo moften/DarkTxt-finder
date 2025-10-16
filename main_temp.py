@@ -9,8 +9,14 @@ from typing import Dict, List, Tuple, Optional
 import multiprocessing as mp
 import unicodedata
 import csv
+import re
+import smtplib
+import ssl
+from dataclasses import dataclass
+from email.message import EmailMessage
 from urllib.parse import urlparse
 
+# --- dependencias opcionales / progreso ---
 try:
     import ahocorasick  # pyahocorasick
 except Exception:
@@ -23,9 +29,16 @@ try:
 except Exception:
     _HAS_TQDM = False
 
+try:
+    from dotenv import load_dotenv  # pip install python-dotenv
+    _HAS_DOTENV = True
+except Exception:
+    _HAS_DOTENV = False
+
 from colorama import Fore, Style, init as colorama_init
 colorama_init(autoreset=True)
 
+# --- configuración por defecto de extensiones y filtros ---
 DEF_EXTS = ["txt","csv","log","json","sql","tsv","xml","yml","yaml","ndjson"]
 
 IGNORE_DIRNAMES = {
@@ -38,26 +51,29 @@ IGNORE_DIRNAMES = {
 }
 
 IGNORE_FILENAMES = {
-    ".DS_Store", "Icon\r",  # volúmenes macOS
+    ".DS_Store", "Icon\r",
     "Thumbs.db", "desktop.ini",
 }
 
-IGNORE_FILE_PREFIXES = (
-    "._",   # macOS resource forks "AppleDouble"
-    "~$",   # MS Office temporales
-    ".#",   # Emacs lockfiles
-    "#",    # Emacs autosave (combinado con sufijo ~)
-)
-
-IGNORE_FILE_SUFFIXES = (
-    "~",
-)
-
+IGNORE_FILE_PREFIXES = ("._", "~$", ".#", "#")
+IGNORE_FILE_SUFFIXES = ("~",)
 IGNORE_FILE_EXTS = (
-    ".tmp", ".temp", ".swp", ".swo", ".swx",  # vim
+    ".tmp", ".temp", ".swp", ".swo", ".swx",
     ".bak", ".old", ".orig", ".part", ".crdownload", ".download",
 )
 
+EMAIL_REGEX = re.compile(r"[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+")
+
+# --- tipos de datos ---
+@dataclass
+class EmailConfig:
+    host: str
+    port: int
+    user: str
+    password: str
+    sender: str
+
+# --- banner ---
 def mostrar_banner():
     banner_ascii = f'''
 {Fore.RED}       ....                           s                      ...                                   ..      {Style.RESET_ALL}
@@ -73,46 +89,37 @@ def mostrar_banner():
 {Fore.YELLOW} !   "*888888888"    "888*""888"    'Y"    "888*""888" "   "8888888*   "88888%   "888*""888" '"888*" 4888" {Style.RESET_ALL}
 {Fore.YELLOW}        ^"***"`       ^Y"   ^Y'             ^Y"   ^Y'        ^"**""      "YP'     ^Y"   ^Y'     ""    ""   {Style.RESET_ALL}
     '''
-
     print(f"{Fore.CYAN}============================================================================{Style.RESET_ALL}")
     print(banner_ascii)
     print(f"{Fore.CYAN}============================================================================{Style.RESET_ALL}\n")
-
-    print(f"{Fore.GREEN}         by m10sec (2025){Style.RESET_ALL} - "
-          f"{Fore.CYAN}Flipador de Tools{Style.RESET_ALL} - "
-          f"{Fore.MAGENTA}m10sec@proton.me{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}         by m10sec (2025){Style.RESET_ALL} - {Fore.CYAN}Flipador de Tools{Style.RESET_ALL} - {Fore.MAGENTA}m10sec@proton.me{Style.RESET_ALL}")
     print(f"{Fore.YELLOW}        Buscador de dominios ultra-rápido en grandes bases de datos{Style.RESET_ALL}")
     print(f"{Fore.CYAN}                usando Aho-Corasick + Multiprocessing{Style.RESET_ALL}\n")
-
     print(f"{Style.BRIGHT}{Fore.YELLOW}=== Instrucciones de uso rápido ==={Style.RESET_ALL}")
     print(f"{Fore.GREEN}1){Style.RESET_ALL} Prepara un archivo TXT con un dominio (o lo que sea) por línea (sin http://).")
     print(f"{Fore.GREEN}2){Style.RESET_ALL} Coloca todas las 'bases de datos' (txt, csv, sql, logs, etc.) en una carpeta.")
     print(f"{Fore.GREEN}3){Style.RESET_ALL} Ejecuta el script y responde las preguntas o usa parámetros por CLI.\n")
-
     print(f"{Fore.CYAN}Ejemplo CLI:{Style.RESET_ALL}")
-    print(f"  {Fore.YELLOW}python3 buscar_dominios_fast.py --dominios ./dominios.txt --db /ruta/bases "
-          f"--ext txt,csv,log --out ./salida --pm-csv ./pm_map.csv --jobs 0{Style.RESET_ALL}\n")
-
+    print(f"  {Fore.YELLOW}python3 main.py --dominios ./dominios.txt --db /ruta/bases --ext txt,csv,log --out ./salida --pm-csv ./pm_map.csv --jobs 0{Style.RESET_ALL}\n")
     print(f"{Fore.CYAN}Por defecto:{Style.RESET_ALL}")
     print(f" - Extensiones: {Fore.GREEN}{','.join(DEF_EXTS)}{Style.RESET_ALL}")
     print(f" - Carpeta salida: {Fore.GREEN}carpeta actual{Style.RESET_ALL}")
     print(f" - jobs=0 usa {Fore.GREEN}todos los núcleos disponibles{Style.RESET_ALL}\n")
     print(f"{Fore.CYAN}{'='*70}{Style.RESET_ALL}\n")
 
-# --- globals para workers ---
+# --- Aho-Corasick globals para los workers ---
 _G_DOMINIOS: List[str] = []
 _G_AUTOMATON = None
 
 def _init_worker(domains: List[str]):
     global _G_DOMINIOS, _G_AUTOMATON
     _G_DOMINIOS = domains
-
     automaton = ahocorasick.Automaton(
         store=ahocorasick.STORE_ANY,
         key_type=ahocorasick.KEY_STRING
     )
     for idx, d in enumerate(_G_DOMINIOS):
-        automaton.add_word(d, (idx, d))  # value: (idx, dominio)
+        automaton.add_word(d, (idx, d))
     automaton.make_automaton()
     _G_AUTOMATON = automaton
 
@@ -134,7 +141,7 @@ def _process_file(path: str) -> List[Tuple[str, str]]:
         sys.stderr.write(f"[!] No se pudo leer {p}: {e}\n")
     return out
 
-# --- helpers de IO y utilidades ---
+# --- utilidades ---
 def leer_dominios(path_lista: Path) -> List[str]:
     dominios = []
     with path_lista.open("r", encoding="utf-8", errors="ignore") as f:
@@ -152,13 +159,10 @@ def leer_dominios(path_lista: Path) -> List[str]:
     return limpios
 
 def _is_ignored_path(p: Path) -> bool:
-    """True si el archivo/directorio debe ignorarse por temporal/sistema."""
     name = p.name
-
     for part in p.parts:
         if part in IGNORE_DIRNAMES:
             return True
-
     if p.is_file():
         if name in IGNORE_FILENAMES:
             return True
@@ -172,39 +176,29 @@ def _is_ignored_path(p: Path) -> bool:
         for ext in IGNORE_FILE_EXTS:
             if low.endswith(ext):
                 return True
-
     return False
 
 def listar_archivos(raiz: Path, exts: List[str], ignore_trash: bool = True) -> List[str]:
     s_exts = set(e.lower().lstrip(".") for e in exts)
     archivos: List[str] = []
     ignorados = 0
-
     for p in raiz.rglob("*"):
         try:
             if p.is_dir() and ignore_trash and p.name in IGNORE_DIRNAMES:
                 continue
-
             if p.is_file():
                 if ignore_trash and _is_ignored_path(p):
                     ignorados += 1
                     continue
-
                 if not s_exts or p.suffix.lower().lstrip(".") in s_exts:
                     archivos.append(str(p))
         except Exception:
             ignorados += 1
             continue
-
     print(f"   (Ignorados {ignorados} temporales/sistema)")
     return archivos
 
-# ---- Normalización robusta de dominios/hosts ----
 def normalizar_dominio(valor: str) -> str:
-    """
-    Devuelve el hostname en minúsculas (sin esquema, path, ni 'www.' inicial).
-    Acepta dominios, URLs completas y valores con/ sin 'http(s)://'.
-    """
     s = (valor or "").strip().lower()
     if not s:
         return ""
@@ -220,16 +214,8 @@ def normalizar_dominio(valor: str) -> str:
         s = s[4:]
     return s
 
-# ---- Carga robusta del CSV de PMs ----
+# --- PM / owners ---
 def cargar_pm_map(pm_csv_path: Path) -> Dict[str, str]:
-    """
-    Carga un CSV con columnas (con o sin encabezado):
-      - 2 columnas: dominio, pm
-      - 3 columnas: dominio, url, pm
-    Acepta separadores ',', ';' o ':'.
-    Detecta encabezado sin depender de Sniffer únicamente.
-    Guarda llaves normalizadas (sin 'www.') y además alias con 'www.'.
-    """
     pm_map: Dict[str, str] = {}
     if not pm_csv_path or not pm_csv_path.exists() or not pm_csv_path.is_file():
         return pm_map
@@ -250,69 +236,47 @@ def cargar_pm_map(pm_csv_path: Path) -> Dict[str, str]:
 
     try:
         with pm_csv_path.open("r", encoding="utf-8", errors="ignore", newline="") as f:
-            sample = f.read(4096)
-            f.seek(0)
+            sample = f.read(4096); f.seek(0)
             delim = detectar_delimitador(sample)
             reader = csv.reader(f, delimiter=delim)
             rows = [r for r in reader if any(c.strip() for c in r)]
-
         if not rows:
             return pm_map
 
         header = rows[0]
         has_header = es_fila_encabezado(header)
 
-        dom_idx = 0
-        pm_idx  = 1
-        url_idx = None
-
+        dom_idx = 0; pm_idx = 1; url_idx = None
         if has_header:
             cols = [c.strip().lower() for c in header]
             dom_candidates = ["dominio", "domain", "host", "url"]
             pm_candidates  = ["pm", "owner", "responsable", "manager", "contacto", "contact", "mail", "email", "correo"]
-
             for name in dom_candidates:
-                if name in cols:
-                    dom_idx = cols.index(name)
-                    break
-
+                if name in cols: dom_idx = cols.index(name); break
             for name in pm_candidates:
-                if name in cols:
-                    pm_idx = cols.index(name)
-                    break
-
+                if name in cols: pm_idx = cols.index(name); break
             if "url" in cols:
                 url_idx = cols.index("url")
-
             data_rows = rows[1:]
         else:
-            first = rows[0]
-            n = len(first)
-            if n >= 3:
-                dom_idx, pm_idx, url_idx = 0, 2, 1
-            elif n == 2:
-                dom_idx, pm_idx = 0, 1
-            else:
-                dom_idx, pm_idx = 0, n - 1
+            first = rows[0]; n = len(first)
+            if n >= 3: dom_idx, pm_idx, url_idx = 0, 2, 1
+            elif n == 2: dom_idx, pm_idx = 0, 1
+            else: dom_idx, pm_idx = 0, n-1
             data_rows = rows
 
         for row in data_rows:
             while len(row) <= max(dom_idx, pm_idx):
                 row.append("")
-
             dom_raw = row[dom_idx].strip()
             pm_raw  = row[pm_idx].strip()
-
             if not dom_raw and url_idx is not None and url_idx < len(row):
                 dom_raw = row[url_idx].strip()
 
             dom_key = normalizar_dominio(dom_raw)
             if not dom_key or not pm_raw:
                 continue
-
-            # clave normalizada (sin www.)
             pm_map[dom_key] = pm_raw
-            # alias con www.
             www_key = "www." + dom_key
             if www_key not in pm_map:
                 pm_map[www_key] = pm_raw
@@ -323,18 +287,10 @@ def cargar_pm_map(pm_csv_path: Path) -> Dict[str, str]:
     return pm_map
 
 def _domain_from_urlish(urlish: str) -> Optional[str]:
-    """
-    Extrae hostname de algo tipo URL. Si no tiene esquema, intenta con http://
-    Devuelve normalizado (sin www.)
-    """
     s = (urlish or "").strip()
-    if not s:
-        return None
+    if not s: return None
     s = s.split()[0]
-    if "://" not in s:
-        s_test = "http://" + s
-    else:
-        s_test = s
+    s_test = "http://" + s if "://" not in s else s
     try:
         host = urlparse(s_test).hostname
         if host:
@@ -344,32 +300,18 @@ def _domain_from_urlish(urlish: str) -> Optional[str]:
     return None
 
 def _find_suffix_match(domain: str, pm_map: Dict[str, str]) -> Optional[str]:
-    """
-    Coincidencia exacta o por sufijo en pm_map. Soporta equivalencias con/ sin 'www.'.
-    """
     d = normalizar_dominio(domain)
-    if not d:
-        return None
-
-    if d in pm_map:
-        return pm_map[d]
-    if ("www." + d) in pm_map:
-        return pm_map["www." + d]
-
+    if not d: return None
+    if d in pm_map: return pm_map[d]
+    if ("www." + d) in pm_map: return pm_map["www." + d]
     parts = d.split(".")
     for i in range(1, len(parts) - 1):
         cand = ".".join(parts[i:])
-        if cand in pm_map:
-            return pm_map[cand]
-        if ("www." + cand) in pm_map:
-            return pm_map["www." + cand]
+        if cand in pm_map: return pm_map[cand]
+        if ("www." + cand) in pm_map: return pm_map[cand]
     return None
 
 def _infer_pm_from_lines(lines: List[str], pm_map: Dict[str, str]) -> Optional[str]:
-    """
-    Intenta inferir el PM observando los hostnames reales en las líneas (url:user:pass)
-    y mapeándolos contra pm_map (exacto o por sufijo). Devuelve el primer PM consistente.
-    """
     for line in lines:
         candidate = line.split()[0] if line.strip() else ""
         host = _domain_from_urlish(candidate.split(":")[0] if "://" not in candidate and ":" in candidate else candidate)
@@ -382,35 +324,63 @@ def _infer_pm_from_lines(lines: List[str], pm_map: Dict[str, str]) -> Optional[s
                 return pm
     return None
 
+def extract_first_email(text: str) -> Optional[str]:
+    m = EMAIL_REGEX.search(text or "")
+    return m.group(0) if m else None
+
+def parse_email_from_pm(pm_info: str) -> Optional[str]:
+    if not pm_info: return None
+    m = re.search(r"<([^>]+)>", pm_info)
+    if m and EMAIL_REGEX.fullmatch(m.group(1).strip()):
+        return m.group(1).strip()
+    m = re.search(r"$begin:math:text$([^)]+)$end:math:text$", pm_info)
+    if m and EMAIL_REGEX.fullmatch(m.group(1).strip()):
+        return m.group(1).strip()
+    return extract_first_email(pm_info)
+
+def _clean_pm_display(pm_info: Optional[str]) -> Optional[str]:
+    return pm_info.replace("<", "").replace(">", "") if pm_info else None
+
 def escribir_resultados(
     agg: Dict[str, List[str]],
     out_dir: Path,
     crear_archivo_vacio: bool,
     pm_map: Optional[Dict[str, str]] = None,
     infer_pm_from_urls: bool = True
-):
+) -> Dict[str, Dict[str, Optional[str]]]:
     pm_map = pm_map or {}
     out_dir.mkdir(parents=True, exist_ok=True)
+    meta: Dict[str, Dict[str, Optional[str]]] = {}
     for dominio, lines in agg.items():
         safe = dominio.replace("/", "_")
         out_path = out_dir / f"{safe}.txt"
         if not lines and not crear_archivo_vacio:
             continue
 
+        pm_info = _find_suffix_match(dominio, pm_map)
+        if not pm_info and infer_pm_from_urls and lines:
+            pm_info = _infer_pm_from_lines(lines, pm_map)
+
+        email = parse_email_from_pm(pm_info) if pm_info else None
+        if not email and lines:
+            for ln in lines:
+                email = extract_first_email(ln)
+                if email: break
+
         with out_path.open("w", encoding="utf-8") as f:
             f.write(f"# Resultados para: {dominio}\n")
-
-            pm_info = _find_suffix_match(dominio, pm_map)
-            if not pm_info and infer_pm_from_urls and lines:
-                pm_info = _infer_pm_from_lines(lines, pm_map)
-
             if pm_info:
-                f.write(f"# PM asignado: {pm_info}\n")
-
+                if parse_email_from_pm(pm_info):
+                    f.write(f"# PM asignado: {pm_info}\n")
+                else:
+                    f.write(f"# PM asignado: {_clean_pm_display(pm_info)}\n")
             if not lines:
                 f.write("(Sin coincidencias)\n")
             else:
                 f.write("\n".join(lines) + "\n")
+
+        meta[dominio] = {"path": str(out_path), "email": email, "pm": pm_info}
+    return meta
 
 def _normaliza_path_input(raw: str) -> Path:
     s = raw.strip().strip('"').strip("'")
@@ -425,25 +395,120 @@ def pedir_ruta(mensaje: str, debe_existir: bool = True, es_directorio: bool = Fa
         if not raw and por_defecto is not None:
             return por_defecto
         p = _normaliza_path_input(raw)
-
         if debe_existir:
             if not p.exists():
                 print(f"   → La ruta no existe. Leí: {repr(raw)}")
-                try:
-                    print(f"     Normalizado: {p}")
-                except Exception:
-                    pass
+                try: print(f"     Normalizado: {p}")
+                except Exception: pass
                 print("     Sugerencia: arrastra la carpeta desde Finder aquí o pégala entre comillas.")
                 continue
             if es_directorio and not p.is_dir():
-                print("   → No es un directorio, intenta de nuevo.")
-                continue
+                print("   → No es un directorio, intenta de nuevo."); continue
             if not es_directorio and not p.is_file():
-                print("   → No es un archivo, intenta de nuevo.")
-                continue
+                print("   → No es un archivo, intenta de nuevo."); continue
         return p
 
-# --- CLI :3 ---
+# --- SMTP helpers ---
+def load_env_file(env_path: Optional[str]) -> None:
+    if env_path and Path(env_path).expanduser().is_file() and _HAS_DOTENV:
+        load_dotenv(dotenv_path=str(Path(env_path).expanduser()))
+    elif env_path and not _HAS_DOTENV:
+        print("[!] Aviso: especificaste --env-file pero falta 'python-dotenv'. Instálalo con: pip install python-dotenv")
+
+def get_email_config_from_env() -> Optional[EmailConfig]:
+    host = os.environ.get("SMTP_HOST", "")
+    port = os.environ.get("SMTP_PORT", "")
+    user = os.environ.get("SMTP_USER", "")
+    password = os.environ.get("SMTP_PASS", "")
+    sender = os.environ.get("SMTP_SENDER", "")
+    if not (host and port and user and password and sender):
+        return None
+    try:
+        port_i = int(port)
+    except Exception:
+        print("[!] SMTP_PORT no es un entero válido.")
+        return None
+    return EmailConfig(host=host, port=port_i, user=user, password=password, sender=sender)
+
+def _smtp_missing_fields() -> List[str]:
+    required = ["SMTP_HOST", "SMTP_PORT", "SMTP_USER", "SMTP_PASS", "SMTP_SENDER"]
+    return [k for k in required if not os.environ.get(k)]
+
+def build_ssl_context(ca_file: Optional[str] = None, skip_verify: bool = False) -> ssl.SSLContext:
+    ctx = ssl.create_default_context()
+    if ca_file and Path(ca_file).is_file():
+        try:
+            ctx.load_verify_locations(cafile=ca_file)
+        except Exception as e:
+            print(f"[!] No se pudo cargar CA_FILE {ca_file}: {e}")
+    if skip_verify:
+        # ⚠️ SOLO para pruebas
+        ctx.check_hostname = False
+        ctx.verify_mode = ssl.CERT_NONE
+        print("[!] Advertencia: verificación TLS desactivada (SMTP_SKIP_VERIFY=true)")
+    return ctx
+
+def send_leak_email(cfg: EmailConfig, to_addr: str, subject: str, body: str, attachments: List[Path] = None) -> bool:
+    """
+    Envía email soportando:
+      - SMTP_TLS_MODE=starttls (por defecto) → típico en puerto 587 (o 25 STARTTLS si el server lo soporta)
+      - SMTP_TLS_MODE=ssl                    → SSL implícito (465)
+      - SMTP_TLS_MODE=none                   → sin TLS (25)  **no recomendado para producción**
+    Soporta:
+      - SMTP_CA_FILE  → ruta a PEM de cadena/CA
+      - SMTP_SKIP_VERIFY=true → desactiva verificación TLS (solo pruebas)
+    """
+    tls_mode = (os.environ.get("SMTP_TLS_MODE", "starttls") or "starttls").lower()
+    ca_file = os.environ.get("SMTP_CA_FILE") or None
+    skip_verify = (os.environ.get("SMTP_SKIP_VERIFY", "false").strip().lower() in ("1","true","yes","y","si","sí"))
+
+    msg = EmailMessage()
+    msg["From"] = cfg.sender
+    msg["To"] = to_addr
+    msg["Subject"] = subject
+    msg.set_content(body)
+
+    for ap in attachments or []:
+        try:
+            data = ap.read_bytes()
+            msg.add_attachment(data, maintype="text", subtype="plain", filename=ap.name)
+        except Exception as e:
+            print(f"[!] No se pudo adjuntar {ap}: {e}")
+
+    ctx = build_ssl_context(ca_file, skip_verify)
+
+    try:
+        if tls_mode == "ssl":
+            # SSL implícito (465)
+            with smtplib.SMTP_SSL(cfg.host, cfg.port, timeout=20, context=ctx) as server:
+                server.login(cfg.user, cfg.password)
+                server.send_message(msg)
+        else:
+            # starttls o none
+            with smtplib.SMTP(cfg.host, cfg.port, timeout=20) as server:
+                server.ehlo()
+                if tls_mode == "starttls":
+                    server.starttls(context=ctx)
+                    server.ehlo()
+                # En modo "none", no TLS: no llamar starttls
+                server.login(cfg.user, cfg.password)
+                server.send_message(msg)
+        return True
+
+    except smtplib.SMTPAuthenticationError as e:
+        print(f"[!] Autenticación SMTP fallida: {e}")
+    except smtplib.SMTPResponseException as e:
+        print(f"[!] Servidor SMTP respondió {e.smtp_code} {e.smtp_error}")
+    except ssl.SSLError as e:
+        print(f"[!] Error TLS/SSL: {e}")
+        print("    Sugerencias: verifica fecha/hora del sistema, usa SMTP_TLS_MODE apropiado,"
+              " ajusta SMTP_CA_FILE a la cadena PEM o actualiza certificados del sistema.")
+    except Exception as e:
+        print(f"[!] Error genérico SMTP: {e}")
+
+    return False
+
+# --- CLI ---
 def parse_args() -> argparse.Namespace:
     ap = argparse.ArgumentParser(description="Buscador de dominios rápido (Aho-Corasick + multiprocessing)")
     ap.add_argument("--dominios", type=str, help="Ruta del archivo de dominios (uno por línea)")
@@ -459,14 +524,25 @@ def parse_args() -> argparse.Namespace:
     ap.add_argument("--pm-csv", type=str, help="CSV (dominio,pm o dominio,url,pm) para etiquetar a quién pertenecen los leaks")
     ap.add_argument("--no-infer-pm", action="store_true",
                     help="No inferir PM desde hostnames reales en líneas url:user:pass")
+
+    # Notificación por correo
+    ap.add_argument("--env-file", type=str, help="Ruta de un .env externo con credenciales SMTP (opcional)")
+    ap.add_argument("--auto-notify", action="store_true",
+                    help="No preguntar y enviar correo automáticamente si hay destinatario y SMTP configurado")
     return ap.parse_args()
+
+def _ask_yes(prompt: str, default: bool = False) -> bool:
+    resp = input(prompt).strip().lower()
+    if not resp:
+        return default
+    return resp in ("s", "si", "sí", "y", "yes", "true", "1")
 
 # --- main ---
 def main():
     mostrar_banner()
     args = parse_args()
 
-    # dominios / término único
+    # 1) dominios / término
     if not args.dominios:
         entrada = input("1) Ruta del archivo de dominios (.txt) o término único a buscar: ").strip()
         if entrada and Path(entrada).expanduser().exists():
@@ -485,20 +561,20 @@ def main():
         print("[X] No se ha especificado dominio o término válido.")
         sys.exit(1)
 
-    # carpeta DB
+    # 2) carpeta DB
     if not args.db:
         db_root = pedir_ruta("2) Ruta de la carpeta con las 'bases de datos': ", True, True)
     else:
         db_root = Path(args.db).expanduser()
 
-    # extensiones
+    # 3) extensiones
     if not args.ext:
         exts_input = input(f"3) Extensiones [por defecto: {','.join(DEF_EXTS)}]: ").strip()
         extensiones = [e.strip().lstrip(".") for e in exts_input.split(",")] if exts_input else DEF_EXTS
     else:
         extensiones = [e.strip().lstrip(".") for e in args.ext.split(",")]
 
-    # salida
+    # 4) salida
     if not args.out:
         base_dir = pedir_ruta("4) Carpeta base de salida (Enter=actual): ", False, True, Path.cwd())
     else:
@@ -506,13 +582,11 @@ def main():
     out_dir = base_dir / "Export"
     out_dir.mkdir(parents=True, exist_ok=True)
 
-    # crear vacíos
+    # 5) crear vacíos
     if not args.dominios or not args.db or not args.out or not args.ext:
-        crear_vacios = input("5) ¿Crear archivos sin coincidencias? [s/N]: ").strip().lower().startswith("s")
+        crear_vacios = _ask_yes("5) ¿Crear archivos sin coincidencias? [s/N]: ", default=False)
     else:
-        crear_vacios = args.crear_vacios
-
-    jobs = args.jobs if args.jobs > 0 else os.cpu_count() or 1
+        crear_vacios = bool(args.crear_vacios)
 
     # PM map (opcional)
     pm_map: Dict[str, str] = {}
@@ -531,32 +605,90 @@ def main():
     archivos = listar_archivos(db_root, extensiones, ignore_trash=not args.no_ignore)
     print(f"   {len(archivos)} archivos para analizar.\n")
 
-    print(f"→ Escaneando con {jobs} procesos...")
+    # Nº de procesos
+    jobs = args.jobs if args.jobs > 0 else (os.cpu_count() or 1)
+    print(f"→ Escaneando con {jobs} proceso(s)...")
+
+    # Agregador de resultados
     agg: Dict[str, List[str]] = {d: [] for d in dominios}
 
+    # Barra de progreso
     use_pbar = _HAS_TQDM and (not args.no_progress)
-    pbar = None
-    if use_pbar:
-        pbar = tqdm(total=len(archivos), unit="file", desc="Escaneando", smoothing=0.1)
+    pbar = tqdm(total=len(archivos), unit="file", desc="Escaneando", smoothing=0.1) if use_pbar else None
 
+    # Pool
     try:
         with mp.Pool(processes=jobs, initializer=_init_worker, initargs=(dominios,)) as pool:
             for result in pool.imap_unordered(_process_file, archivos, chunksize=10):
                 for d, line in result:
                     agg[d].append(line)
-                if use_pbar and pbar:
-                    pbar.update(1)
+                if pbar: pbar.update(1)
     finally:
-        if use_pbar and pbar:
-            pbar.close()
+        if pbar: pbar.close()
 
+    # Guardar + meta para notificaciones
     print("→ Guardando resultados...")
-    escribir_resultados(agg, out_dir, crear_vacios, pm_map, infer_pm_from_urls)
+    meta = escribir_resultados(agg, out_dir, crear_vacios, pm_map, infer_pm_from_urls)
 
     total_hits = sum(len(v) for v in agg.values())
     con_hits = sum(1 for v in agg.values() if v)
     print(f"\n✅ Completado. {con_hits}/{len(dominios)} términos con coincidencias. Total líneas: {total_hits}.")
     print(f"📂 Archivos guardados en: {out_dir}")
+
+    # --- Envío por correo (opcional) ---
+    load_env_file(args.env_file)
+    smtp_cfg = get_email_config_from_env()
+    dominios_con_dest = {d: m for d, m in meta.items() if m.get("email")}
+    hay_destinatarios = bool(dominios_con_dest)
+
+    # Validaciones previas
+    if not smtp_cfg:
+        faltan = _smtp_missing_fields()
+        print("ℹ️ SMTP no configurado en entorno/.env. No se enviarán correos.")
+        if faltan:
+            print(f"   → Faltan variables: {', '.join(faltan)}")
+        return
+    if not hay_destinatarios:
+        print("ℹ️ No se encontraron correos destino en PMs ni en los leaks. No se enviarán correos.")
+        return
+
+    # Confirmación
+    if not args.auto_notify:
+        if not _ask_yes("¿Quieres informar de los leaks por correo ahora? [s/N]: ", default=False):
+            print("ℹ️ Envío por correo cancelado por el usuario.")
+            return
+
+    print("→ Enviando notificaciones de leaks por correo...")
+    enviados, fallidos = 0, 0
+    for dominio, info in dominios_con_dest.items():
+        to_addr = info["email"]
+        if not to_addr:  # redundante, pero seguro
+            continue
+        attachment = Path(info["path"])
+        pm_info = info.get("pm") or "(desconocido)"
+        subject = f"[Leak] Resultados para {dominio}"
+        body = (
+            f"Hola,\n\n"
+            f"Se han encontrado posibles coincidencias para el término/dominio: {dominio}\n"
+            f"PM asignado: {pm_info}\n\n"
+            f"Adjunto el archivo con el detalle de líneas encontradas.\n\n"
+            f"— Enviado automáticamente por DarkTxt-finder\n"
+        )
+        ok = send_leak_email(
+            smtp_cfg,
+            to_addr=to_addr,
+            subject=subject,
+            body=body,
+            attachments=[attachment] if attachment.exists() else []
+        )
+        if ok:
+            enviados += 1
+            print(f"   ✔ Enviado a {to_addr} ({dominio})")
+        else:
+            fallidos += 1
+            print(f"   ✖ Falló envío a {to_addr} ({dominio})")
+
+    print(f"→ Notificaciones completadas. Éxitos: {enviados}, Fallos: {fallidos}")
 
 if __name__ == "__main__":
     try:
