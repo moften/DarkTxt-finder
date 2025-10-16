@@ -1,13 +1,20 @@
 # 🕵️‍♂️ DarkTxt-finder
 
 ```
-░  ░░░░░░░░        ░░░      ░░░  ░░░░  ░
-▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒▒▒▒▒  ▒▒▒▒  ▒▒  ▒▒▒  ▒▒
-▓  ▓▓▓▓▓▓▓▓      ▓▓▓▓  ▓▓▓▓  ▓▓     ▓▓▓▓
-█  ████████  ████████        ██  ███  ██
-█        ██        ██  ████  ██  ████  █
+       ....                           s                      ...                                   ..      
+   .xH888888Hx.                      :8                  .zf"` `"tu                          < .z@8"`      
+ .H8888888888888:                   .88                 x88      '8N.                         !@88E        
+ 888*"""?""*88888X         u       :888ooo       u      888k     d88&      .u          u      '888E   u    
+'f     d8x.   ^%88k     us888u.  -*8888888    us888u.   8888N.  @888F   ud8888.     us888u.    888E u@8NL  
+'>    <88888X   '?8  .@88 "8888"   8888    .@88 "8888"  `88888 9888%  :888'8888. .@88 "8888"   888E`"88*"  
+ `:..:`888888>    8> 9888  9888    8888    9888  9888     %888 "88F   d888 '88%" 9888  9888    888E .dN.   
+        `"*88     X  9888  9888    8888    9888  9888      8"   "*h=~ 8888.+"    9888  9888    888E~8888   
+   .xHHhx.."      !  9888  9888   .8888Lu= 9888  9888    z8Weu        8888L      9888  9888    888E '888&  
+  X88888888hx. ..!   9888  9888   ^%888*   9888  9888   ""88888i.   Z '8888c. .+ 9888  9888    888E  9888. 
+ !   "*888888888"    "888*""888"    'Y"    "888*""888" "   "8888888*   "88888%   "888*""888" '"888*" 4888" 
+        ^"***"`       ^Y"   ^Y'             ^Y"   ^Y'        ^"**""      "YP'     ^Y"   ^Y'     ""    ""   
                                         
-by m10sec m10sec@proton.mx
+by m10sec m10sec@proton.me
   🔍 Buscador de dominios ultra-rápido en grandes bases de datos
      usando Aho-Corasick + Multiprocessing
 ```
@@ -24,16 +31,20 @@ DarkTxt-finder es una herramienta en **Python** para buscar rápidamente coincid
 - **Interfaz interactiva** o por **línea de comandos (CLI)**.
 - Guarda resultados **por dominio** en la carpeta `Export/`.
 - Permite **filtrar extensiones** de archivo a analizar.
-- Compatible con macOS, Linux y Windows.
+- Compatible con macOS, Linux y Windows. (entorno python)
 
 ---
 
 ## 📦 Requisitos
 
-El único paquete externo necesario es:
+Instala los requeriments
 
 ```txt
-pyahocorasick>=2.0.0
+pyahocorasick>=2.1.0
+colorama>=0.4.6
+PyYAML>=6.0.1
+tqdm>=4.66.1
+python-dotenv
 ```
 
 Instálalo con:
