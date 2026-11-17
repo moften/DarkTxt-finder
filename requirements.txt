@@ -1,5 +1,12 @@
+# Dependencias (pip) para el motor de búsqueda
 pyahocorasick>=2.1.0
 colorama>=0.4.6
 PyYAML>=6.0.1
 tqdm>=4.66.1
-python-dotenv
+python-dotenv>=1.0.0
+
+# --- Interfaz gráfica (gui.py) ---
+# Tkinter NO se instala con pip: forma parte de la librería estándar de Python.
+#   - macOS / Windows: incluido con el instalador oficial de python.org.
+#   - Linux (Debian/Ubuntu): sudo apt install python3-tk
+#   - Linux (Fedora):        sudo dnf install python3-tkinter

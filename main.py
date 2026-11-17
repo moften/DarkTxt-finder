@@ -60,7 +60,6 @@ IGNORE_FILE_EXTS = (
 
 def mostrar_banner():
     banner_ascii = f'''
-{Fore.RED}       ....                           s                      ...                                   ..      {Style.RESET_ALL}
 {Fore.RED}   .xH888888Hx.                      :8                  .zf"` `"tu                          < .z@8"`      {Style.RESET_ALL}
 {Fore.RED} .H8888888888888:                   .88                 x88      '8N.                         !@88E        {Style.RESET_ALL}
 {Fore.RED} 888*"""?""*88888X         u       :888ooo       u      888k     d88&      .u          u      '888E   u    {Style.RESET_ALL}
@@ -74,30 +73,35 @@ def mostrar_banner():
 {Fore.YELLOW}        ^"***"`       ^Y"   ^Y'             ^Y"   ^Y'        ^"**""      "YP'     ^Y"   ^Y'     ""    ""   {Style.RESET_ALL}
     '''
 
-    print(f"{Fore.CYAN}============================================================================{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}============================================================================{Style.RESET_ALL}")
     print(banner_ascii)
-    print(f"{Fore.CYAN}============================================================================{Style.RESET_ALL}\n")
+    print(f"{Fore.GREEN}============================================================================{Style.RESET_ALL}\n")
 
-    print(f"{Fore.GREEN}         by m10sec (2025){Style.RESET_ALL} - "
-          f"{Fore.CYAN}Flipador de Tools{Style.RESET_ALL} - "
-          f"{Fore.MAGENTA}m10sec@proton.me{Style.RESET_ALL}")
-    print(f"{Fore.YELLOW}        Buscador de dominios ultra-rápido en grandes bases de datos{Style.RESET_ALL}")
-    print(f"{Fore.CYAN}                usando Aho-Corasick + Multiprocessing{Style.RESET_ALL}\n")
+    print(f"{Fore.GREEN}         m10sec (2026){Style.RESET_ALL} - "
+          f"{Fore.GREEN}Herramientas de CiberSeguridad{Style.RESET_ALL} - "
+          f"{Fore.GREEN}m10sec@proton.me{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}        Buscador de dominios ultra-rápido en grandes bases de datos{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}                usando Aho-Corasick + Multiprocessing{Style.RESET_ALL}\n")
 
-    print(f"{Style.BRIGHT}{Fore.YELLOW}=== Instrucciones de uso rápido ==={Style.RESET_ALL}")
+
+
+
+    
+
+    print(f"{Style.BRIGHT}{Fore.GREEN}=== Instrucciones de uso rápido ==={Style.RESET_ALL}")
     print(f"{Fore.GREEN}1){Style.RESET_ALL} Prepara un archivo TXT con un dominio (o lo que sea) por línea (sin http://).")
     print(f"{Fore.GREEN}2){Style.RESET_ALL} Coloca todas las 'bases de datos' (txt, csv, sql, logs, etc.) en una carpeta.")
     print(f"{Fore.GREEN}3){Style.RESET_ALL} Ejecuta el script y responde las preguntas o usa parámetros por CLI.\n")
 
-    print(f"{Fore.CYAN}Ejemplo CLI:{Style.RESET_ALL}")
-    print(f"  {Fore.YELLOW}python3 buscar_dominios_fast.py --dominios ./dominios.txt --db /ruta/bases "
+    print(f"{Fore.GREEN}Ejemplo CLI:{Style.RESET_ALL}")
+    print(f"  {Fore.GREEN}python3 buscar_dominios_fast.py --dominios ./dominios.txt --db /ruta/bases "
           f"--ext txt,csv,log --out ./salida --pm-csv ./pm_map.csv --jobs 0{Style.RESET_ALL}\n")
 
-    print(f"{Fore.CYAN}Por defecto:{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}Por defecto:{Style.RESET_ALL}")
     print(f" - Extensiones: {Fore.GREEN}{','.join(DEF_EXTS)}{Style.RESET_ALL}")
     print(f" - Carpeta salida: {Fore.GREEN}carpeta actual{Style.RESET_ALL}")
     print(f" - jobs=0 usa {Fore.GREEN}todos los núcleos disponibles{Style.RESET_ALL}\n")
-    print(f"{Fore.CYAN}{'='*70}{Style.RESET_ALL}\n")
+    print(f"{Fore.GREEN}{'='*70}{Style.RESET_ALL}\n")
 
 _G_DOMINIOS: List[str] = []
 _G_AUTOMATON = None
@@ -417,6 +421,12 @@ def _normaliza_path_input(raw: str) -> Path:
     p = Path(os.path.expandvars(s)).expanduser()
     return p
 
+def _ask_yes(prompt: str, default: bool = False) -> bool:
+    resp = input(prompt).strip().lower()
+    if not resp:
+        return default
+    return resp in ("s", "si", "sí", "y", "yes", "true", "1")
+
 def pedir_ruta(mensaje: str, debe_existir: bool = True, es_directorio: bool = False, por_defecto: Path | None = None) -> Path:
     while True:
         raw = input(mensaje)
@@ -454,60 +464,10 @@ def parse_args() -> argparse.Namespace:
                     help="No ignorar archivos temporales/sistema (por defecto se ignoran)")
     ap.add_argument("--no-progress", action="store_true",
                     help="Desactivar barra de progreso (tqdm)")
-    ap.add_argument("--pm-csv", type=str, help="CSV (dominio,pm o dominio,url,pm) para etiquetar a quién pertenecen los leaks")
+    ap.add_argument("--pm-csv", type=str, help="CSV (dominio,pm o dominio,url,pm) para etiquetar a quién pertenecen los leaks.")
     ap.add_argument("--no-infer-pm", action="store_true",
                     help="No inferir PM desde hostnames reales en líneas url:user:pass")
     return ap.parse_args()
-
-# --- main  aqui va todo---
-def main():
-    mostrar_banner()
-    args = parse_args()
-
-    if not args.dominios:
-        entrada = input("1) Ruta del archivo de dominios (.txt) o término único a buscar: ").strip()
-        if entrada and Path(entrada).expanduser().exists():
-            lista_path = Path(entrada).expanduser()
-            dominios = leer_dominios(lista_path)
-        else:
-            dominios = [entrada.lower()]
-    else:
-        lista_path = Path(args.dominios).expanduser()
-        if lista_path.exists():
-            dominios = leer_dominios(lista_path)
-        else:
-            dominios = [args.dominios.lower()]
-
-    if not dominios or all(not d.strip() for d in dominios):
-        print("[X] No se ha especificado dominio o término válido.")
-        sys.exit(1)
-
-    # carpeta DB
-    if not args.db:
-        db_root = pedir_ruta("2) Ruta de la carpeta con las 'bases de datos': ", True, True)
-    else:
-        db_root = Path(args.db).expanduser()
-
-    # extensiones
-    if not args.ext:
-        exts_input = input(f"3) Extensiones [por defecto: {','.join(DEF_EXTS)}]: ").strip()
-        extensiones = [e.strip().lstrip(".") for e in exts_input.split(",")] if exts_input else DEF_EXTS
-    else:
-        extensiones = [e.strip().lstrip(".") for e in args.ext.split(",")]
-
-    # salida
-    if not args.out:
-        base_dir = pedir_ruta("4) Carpeta base de salida (Enter=actual): ", False, True, Path.cwd())
-    else:
-        base_dir = Path(args.out).expanduser()
-    out_dir = base_dir / "Export"
-    out_dir.mkdir(parents=True, exist_ok=True)
-
-def _ask_yes(prompt: str, default: bool = False) -> bool:
-    resp = input(prompt).strip().lower()
-    if not resp:
-        return default
-    return resp in ("s", "si", "sí", "y", "yes", "true", "1")
 
 # --- main ---
 def main():
@@ -517,14 +477,19 @@ def main():
     # 1) dominios / término
     if not args.dominios:
         entrada = input("1) Ruta del archivo de dominios (.txt) o término único a buscar: ").strip()
-        if entrada and Path(entrada).expanduser().exists():
-            lista_path = Path(entrada).expanduser()
-            dominios = leer_dominios(lista_path)
+        if entrada:
+            lista_path_try = _normaliza_path_input(entrada)
+            if lista_path_try.exists() and lista_path_try.is_file():
+                lista_path = lista_path_try
+                dominios = leer_dominios(lista_path)
+                print(f"   → Archivo cargado: {lista_path} ({len(dominios)} término(s))")
+            else:
+                dominios = [entrada.lower()]
         else:
-            dominios = [entrada.lower()]
+            dominios = []
     else:
-        lista_path = Path(args.dominios).expanduser()
-        if lista_path.exists():
+        lista_path = _normaliza_path_input(args.dominios)
+        if lista_path.exists() and lista_path.is_file():
             dominios = leer_dominios(lista_path)
         else:
             dominios = [args.dominios.lower()]
@@ -541,8 +506,8 @@ def main():
 
     # 3) extensiones
     if not args.ext:
-        exts_input = input(f"3) Extensiones [por defecto: {','.join(DEF_EXTS)}]: ").strip()
-        extensiones = [e.strip().lstrip(".") for e in exts_input.split(",")] if exts_input else DEF_EXTS
+        exts_input = input(f"3) Extensiones [Enter=TODOS los archivos, o ej: txt,csv,log]: ").strip()
+        extensiones = [e.strip().lstrip(".") for e in exts_input.split(",")] if exts_input else []
     else:
         extensiones = [e.strip().lstrip(".") for e in args.ext.split(",")]
 
